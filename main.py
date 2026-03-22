@@ -1,9 +1,22 @@
 from datetime import datetime
 from typing import Optional
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
 from services.hevy import HevyClient
 
+API_KEY = "76598381b462d9a0991cfa3d6012418b66d774b400ad555d94e80238ce42eb26"
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        api_key = request.headers.get("Authorization")
+        if api_key != f"Bearer {API_KEY}":
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        return await call_next(request)
+
 mcp = FastMCP("HevyHealthServer")
+mcp.add_middleware(AuthMiddleware)
 
 # Shared client instance
 _client: Optional[HevyClient] = None
@@ -313,4 +326,4 @@ async def get_exercise_history(template_id: str):
     return result.model_dump() if result else {"error": f"Failed to get exercise history for {template_id}"}
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport="http", host="0.0.0.0", port=8001)
