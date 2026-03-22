@@ -32,7 +32,4 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV MCP_HOST=0.0.0.0
 ENV MCP_PORT=8001
  
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request, json; req = urllib.request.Request('http://localhost:8001/mcp', data=json.dumps({'jsonrpc':'2.0','method':'ping','id':1}).encode(), headers={'Content-Type':'application/json'}); urllib.request.urlopen(req)" || exit 1
- 
 CMD ["python", "main.py"]
