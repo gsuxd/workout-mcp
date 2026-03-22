@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from fastmcp import FastMCP
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.responses import JSONResponse
 import os
 
@@ -9,12 +9,19 @@ from services.hevy import HevyClient
 
 API_KEY = os.environ["API_KEY"]
 
-class AuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        api_key = request.headers.get("Authorization")
-        if api_key != f"Bearer {API_KEY}":
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
-        return await call_next(request)
+class AuthMiddleware:
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            auth = headers.get(b"authorization", b"").decode()
+            if auth != f"Bearer {API_KEY}":
+                response = JSONResponse({"error": "Unauthorized"}, status_code=401)
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 mcp = FastMCP("HevyHealthServer")
 mcp.add_middleware(AuthMiddleware)
