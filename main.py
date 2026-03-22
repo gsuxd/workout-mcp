@@ -3,10 +3,11 @@ from typing import Optional
 from fastmcp import FastMCP
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+import os
 
 from services.hevy import HevyClient
 
-API_KEY = "76598381b462d9a0991cfa3d6012418b66d774b400ad555d94e80238ce42eb26"
+API_KEY = os.environ["API_KEY"]
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -326,4 +327,6 @@ async def get_exercise_history(template_id: str):
     return result.model_dump() if result else {"error": f"Failed to get exercise history for {template_id}"}
 
 if __name__ == "__main__":
-    mcp.run(transport="http", host="0.0.0.0", port=8001)
+    port = int(os.getenv("MCP_PORT", "8001"))
+    host = os.getenv("MCP_HOST", "0.0.0.0")
+    mcp.run(transport="http", host=host, port=port)
