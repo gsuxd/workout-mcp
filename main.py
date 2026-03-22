@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from fastmcp import FastMCP
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.responses import JSONResponse
@@ -35,6 +35,43 @@ def get_client() -> HevyClient:
         _client = HevyClient()
     return _client
 
+
+def _jsonable(value: Any) -> Any:
+    """Convert tool outputs into JSON-safe values."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, tuple):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json", exclude_none=True)
+    return value
+
+
+def _ok(data: Any) -> dict:
+    return {
+        "ok": True,
+        "data": _jsonable(data),
+        "error": None,
+    }
+
+
+def _error(code: str, message: str, details: Optional[dict] = None) -> dict:
+    return {
+        "ok": False,
+        "data": None,
+        "error": {
+            "code": code,
+            "message": message,
+            "details": details or {},
+        },
+    }
+
 # ==================== User Tools ====================
 
 @mcp.tool()
@@ -42,7 +79,9 @@ async def get_user_info():
     """Get basic user profile information (id, name, url)."""
     client = get_client()
     result = await client.get_user_info()
-    return result.model_dump() if result else {"error": "Failed to get user info"}
+    if result is None:
+        return _error("upstream_error", "Failed to get user info")
+    return _ok(result)
 
 # ==================== Workout Tools ====================
 
@@ -56,7 +95,9 @@ async def get_workouts(page: int = 1):
     """
     client = get_client()
     result = await client.get_workouts(page=page)
-    return result.model_dump() if result else {"error": "Failed to get workouts"}
+    if result is None:
+        return _error("upstream_error", "Failed to get workouts", {"page": page})
+    return _ok(result)
 
 @mcp.tool()
 async def get_workout(workout_id: str):
@@ -68,14 +109,18 @@ async def get_workout(workout_id: str):
     """
     client = get_client()
     result = await client.get_workout(workout_id)
-    return result.model_dump() if result else {"error": f"Failed to get workout {workout_id}"}
+    if result is None:
+        return _error("not_found", f"Failed to get workout {workout_id}", {"workout_id": workout_id})
+    return _ok(result)
 
 @mcp.tool()
 async def get_workout_count():
     """Get the total number of workouts on the account."""
     client = get_client()
     count = await client.get_workout_count()
-    return {"count": count} if count is not None else {"error": "Failed to get workout count"}
+    if count is None:
+        return _error("upstream_error", "Failed to get workout count")
+    return _ok({"count": count})
 
 @mcp.tool()
 async def get_workout_events(since: str, page: int = 1):
@@ -90,9 +135,15 @@ async def get_workout_events(since: str, page: int = 1):
     try:
         since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
         result = await client.get_workout_events(since=since_dt, page=page)
-        return result.model_dump() if result else {"error": "Failed to get workout events"}
+        if result is None:
+            return _error(
+                "upstream_error",
+                "Failed to get workout events",
+                {"since": since, "page": page},
+            )
+        return _ok(result)
     except ValueError as e:
-        return {"error": f"Invalid date format: {e}"}
+        return _error("invalid_input", "Invalid date format", {"since": since, "reason": str(e)})
 
 @mcp.tool()
 async def create_workout(
@@ -114,22 +165,26 @@ async def create_workout(
         description: Optional workout description
         routine_id: Optional routine ID this workout is based on
     """
-    from services.types import PostWorkoutsRequestBody, Exercise
+    from services.types import PostWorkoutsRequestBody
 
     client = get_client()
     try:
         workout_data = PostWorkoutsRequestBody(
-            title=title,
-            description=description,
-            start_time=datetime.fromisoformat(start_time.replace('Z', '+00:00')),
-            end_time=datetime.fromisoformat(end_time.replace('Z', '+00:00')),
-            exercises=[Exercise(**ex) for ex in exercises],
-            routine_id=routine_id
+            workout={
+                "title": title,
+                "description": description,
+                "start_time": datetime.fromisoformat(start_time.replace('Z', '+00:00')),
+                "end_time": datetime.fromisoformat(end_time.replace('Z', '+00:00')),
+                "exercises": exercises,
+                "routine_id": routine_id,
+            }
         )
         result = await client.create_workout(workout_data)
-        return result.model_dump() if result else {"error": "Failed to create workout"}
+        if result is None:
+            return _error("upstream_error", "Failed to create workout")
+        return _ok(result)
     except (ValueError, Exception) as e:
-        return {"error": f"Failed to create workout: {e}"}
+        return _error("invalid_input", "Failed to create workout", {"reason": str(e)})
 
 # ==================== Routine Tools ====================
 
@@ -143,7 +198,9 @@ async def get_routines(page: int = 1):
     """
     client = get_client()
     result = await client.get_routines(page=page)
-    return result.model_dump() if result else {"error": "Failed to get routines"}
+    if result is None:
+        return _error("upstream_error", "Failed to get routines", {"page": page})
+    return _ok(result)
 
 @mcp.tool()
 async def get_routine(routine_id: str):
@@ -155,7 +212,9 @@ async def get_routine(routine_id: str):
     """
     client = get_client()
     result = await client.get_routine(routine_id)
-    return result.model_dump() if result else {"error": f"Failed to get routine {routine_id}"}
+    if result is None:
+        return _error("not_found", f"Failed to get routine {routine_id}", {"routine_id": routine_id})
+    return _ok(result)
 
 @mcp.tool()
 async def create_routine(
@@ -171,19 +230,23 @@ async def create_routine(
         exercises: List of exercises with sets
         folder_id: Optional folder ID to organize the routine
     """
-    from services.types import PostRoutinesRequestBody, Exercise
+    from services.types import PostRoutinesRequestBody
 
     client = get_client()
     try:
         routine_data = PostRoutinesRequestBody(
-            title=title,
-            folder_id=folder_id,
-            exercises=[Exercise(**ex) for ex in exercises]
+            routine={
+                "title": title,
+                "folder_id": folder_id,
+                "exercises": exercises,
+            }
         )
         result = await client.create_routine(routine_data)
-        return result.model_dump() if result else {"error": "Failed to create routine"}
+        if result is None:
+            return _error("upstream_error", "Failed to create routine")
+        return _ok(result)
     except (ValueError, Exception) as e:
-        return {"error": f"Failed to create routine: {e}"}
+        return _error("invalid_input", "Failed to create routine", {"reason": str(e)})
 
 @mcp.tool()
 async def update_routine(
@@ -201,19 +264,27 @@ async def update_routine(
         exercises: Optional new list of exercises
         folder_id: Optional new folder ID
     """
-    from services.types import PutRoutinesRequestBody, Exercise
+    from services.types import PutRoutinesRequestBody
 
     client = get_client()
     try:
         routine_data = PutRoutinesRequestBody(
-            title=title,
-            folder_id=folder_id,
-            exercises=[Exercise(**ex) for ex in exercises] if exercises else None
+            routine={
+                "title": title,
+                "folder_id": folder_id,
+                "exercises": exercises,
+            }
         )
         result = await client.update_routine(routine_id, routine_data)
-        return result.model_dump() if result else {"error": f"Failed to update routine {routine_id}"}
+        if result is None:
+            return _error(
+                "upstream_error",
+                f"Failed to update routine {routine_id}",
+                {"routine_id": routine_id},
+            )
+        return _ok(result)
     except (ValueError, Exception) as e:
-        return {"error": f"Failed to update routine: {e}"}
+        return _error("invalid_input", "Failed to update routine", {"reason": str(e)})
 
 # ==================== Routine Folder Tools ====================
 
@@ -227,7 +298,9 @@ async def get_routine_folders(page: int = 1):
     """
     client = get_client()
     result = await client.get_routine_folders(page=page)
-    return result.model_dump() if result else {"error": "Failed to get routine folders"}
+    if result is None:
+        return _error("upstream_error", "Failed to get routine folders", {"page": page})
+    return _ok(result)
 
 @mcp.tool()
 async def get_routine_folder(folder_id: int):
@@ -239,7 +312,9 @@ async def get_routine_folder(folder_id: int):
     """
     client = get_client()
     result = await client.get_routine_folder(folder_id)
-    return result.model_dump() if result else {"error": f"Failed to get folder {folder_id}"}
+    if result is None:
+        return _error("not_found", f"Failed to get folder {folder_id}", {"folder_id": folder_id})
+    return _ok(result)
 
 @mcp.tool()
 async def create_routine_folder(title: str, index: Optional[int] = None):
@@ -254,11 +329,18 @@ async def create_routine_folder(title: str, index: Optional[int] = None):
 
     client = get_client()
     try:
-        folder_data = PostRoutineFolderRequestBody(title=title, index=index)
+        folder_data = PostRoutineFolderRequestBody(
+            routine_folder={
+                "title": title,
+                "index": index,
+            }
+        )
         result = await client.create_routine_folder(folder_data)
-        return result.model_dump() if result else {"error": "Failed to create folder"}
+        if result is None:
+            return _error("upstream_error", "Failed to create folder")
+        return _ok(result)
     except (ValueError, Exception) as e:
-        return {"error": f"Failed to create folder: {e}"}
+        return _error("invalid_input", "Failed to create folder", {"reason": str(e)})
 
 # ==================== Exercise Template Tools ====================
 
@@ -272,7 +354,9 @@ async def get_exercise_templates(page: int = 1):
     """
     client = get_client()
     result = await client.get_exercise_templates(page=page)
-    return result.model_dump() if result else {"error": "Failed to get exercise templates"}
+    if result is None:
+        return _error("upstream_error", "Failed to get exercise templates", {"page": page})
+    return _ok(result)
 
 @mcp.tool()
 async def get_exercise_template(template_id: str):
@@ -284,7 +368,9 @@ async def get_exercise_template(template_id: str):
     """
     client = get_client()
     result = await client.get_exercise_template(template_id)
-    return result.model_dump() if result else {"error": f"Failed to get template {template_id}"}
+    if result is None:
+        return _error("not_found", f"Failed to get template {template_id}", {"template_id": template_id})
+    return _ok(result)
 
 @mcp.tool()
 async def create_custom_exercise(
@@ -309,28 +395,62 @@ async def create_custom_exercise(
     client = get_client()
     try:
         exercise_data = CreateCustomExerciseRequestBody(
-            title=title,
-            type=CustomExerciseType(exercise_type),
-            primary_muscle_group=MuscleGroup(primary_muscle_group) if primary_muscle_group else None,
-            secondary_muscle_groups=[MuscleGroup(mg) for mg in secondary_muscle_groups] if secondary_muscle_groups else None,
-            equipment_category=EquipmentCategory(equipment_category) if equipment_category else None
+            exercise={
+                "title": title,
+                "exercise_type": CustomExerciseType(exercise_type),
+                "muscle_group": MuscleGroup(primary_muscle_group) if primary_muscle_group else None,
+                "other_muscles": [MuscleGroup(mg) for mg in secondary_muscle_groups] if secondary_muscle_groups else [],
+                "equipment_category": EquipmentCategory(equipment_category) if equipment_category else None,
+            }
         )
         result = await client.create_custom_exercise(exercise_data)
-        return result.model_dump() if result else {"error": "Failed to create custom exercise"}
+        if result is None:
+            return _error("upstream_error", "Failed to create custom exercise")
+        return _ok(result)
     except (ValueError, Exception) as e:
-        return {"error": f"Failed to create custom exercise: {e}"}
+        return _error("invalid_input", "Failed to create custom exercise", {"reason": str(e)})
 
 @mcp.tool()
-async def get_exercise_history(template_id: str):
+async def get_exercise_history(
+    template_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
     """
     Get the history of a specific exercise across all workouts.
 
     Args:
         template_id: Unique exercise template ID
+        start_date: Optional ISO 8601 start date filter
+        end_date: Optional ISO 8601 end date filter
     """
     client = get_client()
-    result = await client.get_exercise_history(template_id)
-    return result.model_dump() if result else {"error": f"Failed to get exercise history for {template_id}"}
+    try:
+        start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00')) if start_date else None
+        end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00')) if end_date else None
+        result = await client.get_exercise_history(template_id, start_date=start_dt, end_date=end_dt)
+        if result is None:
+            return _error(
+                "upstream_error",
+                f"Failed to get exercise history for {template_id}",
+                {
+                    "template_id": template_id,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+            )
+        return _ok(result)
+    except ValueError as e:
+        return _error(
+            "invalid_input",
+            "Invalid date format",
+            {
+                "template_id": template_id,
+                "start_date": start_date,
+                "end_date": end_date,
+                "reason": str(e),
+            },
+        )
 
 if __name__ == "__main__":
     import uvicorn

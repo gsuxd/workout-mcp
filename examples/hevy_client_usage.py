@@ -10,8 +10,6 @@ from services.hevy import HevyClient
 from services.types import (
     PostWorkoutsRequestBody,
     CreateCustomExerciseRequestBody,
-    Exercise,
-    Set,
     SetType,
     CustomExerciseType,
     MuscleGroup,
@@ -67,33 +65,31 @@ async def example_usage():
         
         # Example: Create a simple workout
         new_workout = PostWorkoutsRequestBody(
-            title="Morning Push Workout",
-            description="Chest and triceps focus",
-            start_time=datetime.now(),
-            end_time=datetime.now() + timedelta(hours=1),
-            exercises=[
-                Exercise(
-                    index=0,
-                    title="Bench Press",
-                    exercise_template_id="bench-press-barbell",  # Use actual template ID
-                    sets=[
-                        Set(index=0, type=SetType.WARMUP, weight_kg=60, reps=10),
-                        Set(index=1, type=SetType.NORMAL, weight_kg=80, reps=8),
-                        Set(index=2, type=SetType.NORMAL, weight_kg=80, reps=8),
-                        Set(index=3, type=SetType.NORMAL, weight_kg=80, reps=7),
-                    ]
-                ),
-                Exercise(
-                    index=1,
-                    title="Tricep Dips",
-                    exercise_template_id="tricep-dips",  # Use actual template ID
-                    sets=[
-                        Set(index=0, type=SetType.NORMAL, reps=12),
-                        Set(index=1, type=SetType.NORMAL, reps=10),
-                        Set(index=2, type=SetType.FAILURE, reps=8),
-                    ]
-                )
-            ]
+            workout={
+                "title": "Morning Push Workout",
+                "description": "Chest and triceps focus",
+                "start_time": datetime.now(),
+                "end_time": datetime.now() + timedelta(hours=1),
+                "exercises": [
+                    {
+                        "exercise_template_id": "bench-press-barbell",  # Use actual template ID
+                        "sets": [
+                            {"type": SetType.WARMUP, "weight_kg": 60, "reps": 10},
+                            {"type": SetType.NORMAL, "weight_kg": 80, "reps": 8},
+                            {"type": SetType.NORMAL, "weight_kg": 80, "reps": 8},
+                            {"type": SetType.NORMAL, "weight_kg": 80, "reps": 7},
+                        ],
+                    },
+                    {
+                        "exercise_template_id": "tricep-dips",  # Use actual template ID
+                        "sets": [
+                            {"type": SetType.NORMAL, "reps": 12},
+                            {"type": SetType.NORMAL, "reps": 10},
+                            {"type": SetType.FAILURE, "reps": 8},
+                        ],
+                    },
+                ],
+            }
         )
         
         # Uncomment to actually create:
@@ -122,11 +118,13 @@ async def example_usage():
         
         # Create custom exercise
         custom_exercise = CreateCustomExerciseRequestBody(
-            title="My Custom Exercise",
-            type=CustomExerciseType.WEIGHT_REPS,
-            primary_muscle_group=MuscleGroup.CHEST,
-            secondary_muscle_groups=[MuscleGroup.TRICEPS, MuscleGroup.SHOULDERS],
-            equipment_category=EquipmentCategory.DUMBBELL
+            exercise={
+                "title": "My Custom Exercise",
+                "exercise_type": CustomExerciseType.WEIGHT_REPS,
+                "muscle_group": MuscleGroup.CHEST,
+                "other_muscles": [MuscleGroup.TRICEPS, MuscleGroup.SHOULDERS],
+                "equipment_category": EquipmentCategory.DUMBBELL,
+            }
         )
         
         # Uncomment to actually create:
@@ -141,10 +139,9 @@ async def example_usage():
             template_id = templates.exercise_templates[0].id
             history = await client.get_exercise_history(template_id)
             if history:
-                print(f"History for {history.exercise_title}:")
-                print(f"  Total workouts: {len(history.history)}")
-                for entry in history.history[:3]:
-                    print(f"    - {entry.workout_title} ({entry.workout_start_time.date()}): {len(entry.sets)} sets")
+                print(f"Total history entries: {len(history.exercise_history)}")
+                for entry in history.exercise_history[:3]:
+                    print(f"    - {entry.workout_title} ({entry.workout_start_time.date()}): reps={entry.reps} weight_kg={entry.weight_kg}")
 
 
 if __name__ == "__main__":

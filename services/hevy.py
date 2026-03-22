@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime
 import httpx
 from dotenv import load_dotenv
@@ -20,6 +20,8 @@ from services.types import (
     WorkoutCount,
     ExerciseHistory,
     UserInfo,
+    UserInfoResponse,
+    CreatedCustomExerciseResponse,
     # Request models
     PostWorkoutsRequestBody,
     PutWorkoutsRequestBody,
@@ -62,6 +64,13 @@ class HevyClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
 
+    @staticmethod
+    def _unwrap_entity(payload: Any, key: str) -> Any:
+        """Support both wrapped and unwrapped entities from Hevy responses."""
+        if isinstance(payload, dict) and key in payload:
+            return payload[key]
+        return payload
+
     # ==================== User Endpoints ====================
 
     async def get_user_info(self) -> Optional[UserInfo]:
@@ -74,7 +83,7 @@ class HevyClient:
         try:
             response = await self.client.get("user/info")
             response.raise_for_status()
-            return UserInfo(**response.json())
+            return UserInfoResponse(**response.json()).data
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error getting user info: {e}")
             return None
@@ -112,7 +121,8 @@ class HevyClient:
         try:
             response = await self.client.get(f"workouts/{workout_id}")
             response.raise_for_status()
-            return Workout(**response.json())
+            payload = self._unwrap_entity(response.json(), "workout")
+            return Workout(**payload)
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error getting workout {workout_id}: {e}")
             return None
@@ -130,10 +140,11 @@ class HevyClient:
         try:
             response = await self.client.post(
                 "workouts",
-                json=workout.model_dump(mode="json")
+                json=workout.model_dump(mode="json", exclude_none=True)
             )
             response.raise_for_status()
-            return Workout(**response.json())
+            payload = self._unwrap_entity(response.json(), "workout")
+            return Workout(**payload)
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error creating workout: {e}")
             return None
@@ -159,7 +170,8 @@ class HevyClient:
                 json=workout.model_dump(mode="json", exclude_none=True)
             )
             response.raise_for_status()
-            return Workout(**response.json())
+            payload = self._unwrap_entity(response.json(), "workout")
+            return Workout(**payload)
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error updating workout {workout_id}: {e}")
             return None
@@ -174,8 +186,8 @@ class HevyClient:
         try:
             response = await self.client.get("workouts/count")
             response.raise_for_status()
-            data = response.json()
-            return data.get("count")
+            data = WorkoutCount(**response.json())
+            return data.workout_count if data.workout_count is not None else data.count
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error getting workout count: {e}")
             return None
@@ -243,7 +255,8 @@ class HevyClient:
         try:
             response = await self.client.get(f"routines/{routine_id}")
             response.raise_for_status()
-            return Routine(**response.json())
+            payload = self._unwrap_entity(response.json(), "routine")
+            return Routine(**payload)
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error getting routine {routine_id}: {e}")
             return None
@@ -261,10 +274,11 @@ class HevyClient:
         try:
             response = await self.client.post(
                 "routines",
-                json=routine.model_dump(mode="json")
+                json=routine.model_dump(mode="json", exclude_none=True)
             )
             response.raise_for_status()
-            return Routine(**response.json())
+            payload = self._unwrap_entity(response.json(), "routine")
+            return Routine(**payload)
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error creating routine: {e}")
             return None
@@ -290,7 +304,8 @@ class HevyClient:
                 json=routine.model_dump(mode="json", exclude_none=True)
             )
             response.raise_for_status()
-            return Routine(**response.json())
+            payload = self._unwrap_entity(response.json(), "routine")
+            return Routine(**payload)
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error updating routine {routine_id}: {e}")
             return None
@@ -328,7 +343,8 @@ class HevyClient:
         try:
             response = await self.client.get(f"routine_folders/{folder_id}")
             response.raise_for_status()
-            return RoutineFolder(**response.json())
+            payload = self._unwrap_entity(response.json(), "routine_folder")
+            return RoutineFolder(**payload)
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error getting routine folder {folder_id}: {e}")
             return None
@@ -352,7 +368,8 @@ class HevyClient:
                 json=folder.model_dump(mode="json", exclude_none=True)
             )
             response.raise_for_status()
-            return RoutineFolder(**response.json())
+            payload = self._unwrap_entity(response.json(), "routine_folder")
+            return RoutineFolder(**payload)
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error creating routine folder: {e}")
             return None
@@ -390,7 +407,8 @@ class HevyClient:
         try:
             response = await self.client.get(f"exercise_templates/{template_id}")
             response.raise_for_status()
-            return ExerciseTemplate(**response.json())
+            payload = self._unwrap_entity(response.json(), "exercise_template")
+            return ExerciseTemplate(**payload)
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error getting exercise template {template_id}: {e}")
             return None
@@ -398,7 +416,7 @@ class HevyClient:
     async def create_custom_exercise(
         self,
         exercise: CreateCustomExerciseRequestBody
-    ) -> Optional[ExerciseTemplate]:
+    ) -> Optional[CreatedCustomExerciseResponse]:
         """
         Create a new custom exercise template.
 
@@ -411,26 +429,40 @@ class HevyClient:
         try:
             response = await self.client.post(
                 "exercise_templates",
-                json=exercise.model_dump(mode="json", exclude_none=True)
+                json=exercise.model_dump(mode="json", exclude_none=True, by_alias=True)
             )
             response.raise_for_status()
-            return ExerciseTemplate(**response.json())
+            payload = self._unwrap_entity(response.json(), "exercise_template")
+            return CreatedCustomExerciseResponse(**payload)
         except (httpx.HTTPError, ValueError) as e:
             print(f"Error creating custom exercise: {e}")
             return None
 
-    async def get_exercise_history(self, template_id: str) -> Optional[ExerciseHistory]:
+    async def get_exercise_history(
+        self,
+        template_id: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Optional[ExerciseHistory]:
         """
         Get the history of a specific exercise across all workouts.
 
         Args:
             template_id: Unique exercise template ID
+            start_date: Optional start date filter (ISO 8601)
+            end_date: Optional end date filter (ISO 8601)
 
         Returns:
             ExerciseHistory object or None on error.
         """
         try:
-            response = await self.client.get(f"exercise_history/{template_id}")
+            params: dict[str, str] = {}
+            if start_date is not None:
+                params["start_date"] = start_date.isoformat()
+            if end_date is not None:
+                params["end_date"] = end_date.isoformat()
+
+            response = await self.client.get(f"exercise_history/{template_id}", params=params)
             response.raise_for_status()
             return ExerciseHistory(**response.json())
         except (httpx.HTTPError, ValueError) as e:

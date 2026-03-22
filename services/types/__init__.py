@@ -41,6 +41,8 @@ from .responses import (
     ExerciseHistoryEntry,
     ExerciseHistory,
     UserInfo,
+    UserInfoResponse,
+    CreatedCustomExerciseResponse,
 )
 
 # Request models
@@ -78,6 +80,8 @@ __all__ = [
     "ExerciseHistoryEntry",
     "ExerciseHistory",
     "UserInfo",
+    "UserInfoResponse",
+    "CreatedCustomExerciseResponse",
     # Request models
     "PostWorkoutsRequestBody",
     "PutWorkoutsRequestBody",

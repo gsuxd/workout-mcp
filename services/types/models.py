@@ -1,7 +1,11 @@
-from typing import List, Optional
+from typing import List, Optional, Union
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from enum import Enum
+
+
+class HevyBaseModel(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
 # Enums
 class SetType(str, Enum):
@@ -38,6 +42,9 @@ class MuscleGroup(str, Enum):
     NECK = "neck"
     ABDUCTORS = "abductors"
     ADDUCTORS = "adductors"
+    CARDIO = "cardio"
+    FULL_BODY = "full_body"
+    OTHER = "other"
 
 class EquipmentCategory(str, Enum):
     NONE = "none"
@@ -51,7 +58,13 @@ class EquipmentCategory(str, Enum):
     OTHER = "other"
 
 # Base Models
-class Set(BaseModel):
+class RepRange(HevyBaseModel):
+    """Rep range for set prescriptions (e.g. 8-12)."""
+    start: int
+    end: int
+
+
+class Set(HevyBaseModel):
     """Represents a single set in an exercise"""
     index: int
     type: SetType
@@ -61,17 +74,26 @@ class Set(BaseModel):
     duration_seconds: Optional[float] = None
     rpe: Optional[float] = None  # 0-10 scale
     custom_metric: Optional[float] = None
+    rep_range: Optional[RepRange] = None
 
-class Exercise(BaseModel):
+class Exercise(HevyBaseModel):
     """Represents an exercise within a workout or routine"""
     index: int
     title: str
     notes: Optional[str] = None
     exercise_template_id: str
-    supersets_id: Optional[int] = None
+    superset_id: Optional[int] = Field(
+        default=None,
+        validation_alias=AliasChoices("superset_id", "supersets_id")
+    )
     sets: List[Set]
 
-class Workout(BaseModel):
+    @property
+    def supersets_id(self) -> Optional[int]:
+        """Backward compatibility alias used by older callers."""
+        return self.superset_id
+
+class Workout(HevyBaseModel):
     """Represents a completed workout"""
     id: str
     title: str
@@ -83,7 +105,7 @@ class Workout(BaseModel):
     created_at: datetime
     exercises: List[Exercise]
 
-class Routine(BaseModel):
+class Routine(HevyBaseModel):
     """Represents a workout routine template"""
     id: str
     title: str
@@ -92,7 +114,7 @@ class Routine(BaseModel):
     created_at: datetime
     exercises: List[Exercise]
 
-class RoutineFolder(BaseModel):
+class RoutineFolder(HevyBaseModel):
     """Represents a folder for organizing routines"""
     id: int
     index: int
@@ -100,12 +122,12 @@ class RoutineFolder(BaseModel):
     updated_at: datetime
     created_at: datetime
 
-class ExerciseTemplate(BaseModel):
+class ExerciseTemplate(HevyBaseModel):
     """Represents an exercise template (standard or custom)"""
-    id: str
+    id: Union[str, int]
     title: str
     type: str
     primary_muscle_group: Optional[MuscleGroup] = None
-    secondary_muscle_groups: List[MuscleGroup] = []
+    secondary_muscle_groups: List[MuscleGroup] = Field(default_factory=list)
     is_custom: bool
     equipment_category: Optional[EquipmentCategory] = None
