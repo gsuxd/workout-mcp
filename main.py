@@ -24,7 +24,6 @@ class AuthMiddleware:
         await self.app(scope, receive, send)
 
 mcp = FastMCP("HevyHealthServer")
-mcp.add_middleware(AuthMiddleware)
 
 # Shared client instance
 _client: Optional[HevyClient] = None
@@ -334,6 +333,11 @@ async def get_exercise_history(template_id: str):
     return result.model_dump() if result else {"error": f"Failed to get exercise history for {template_id}"}
 
 if __name__ == "__main__":
+    import uvicorn
     port = int(os.getenv("MCP_PORT", "8001"))
     host = os.getenv("MCP_HOST", "0.0.0.0")
-    mcp.run(transport="http", host=host, port=port)
+    
+    app = mcp.http_app(path="/mcp")
+    app.add_middleware(AuthMiddleware)  # Starlette nativo
+    
+    uvicorn.run(app, host=host, port=port)
